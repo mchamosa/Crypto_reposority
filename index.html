@@ -300,8 +300,8 @@ const CC_AGG  = { '1m':1,'5m':5,'15m':15,'1h':1,'4h':4,'1d':1,'1w':7 };
 
 async function fetchBinanceKlines(symbol, interval, limit) {
   const bnInterval = BN_INTERVAL_MAP[interval] || '4h';
-  const url = `${BINANCE_PROXY}/klines?symbol=${symbol}USDT&interval=${bnInterval}&limit=${limit}`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}USDT&interval=${bnInterval}&limit=${limit}`;
+  const resp = await fetch(url, { mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(10000) });
   if (!resp.ok) throw new Error('Binance HTTP ' + resp.status);
   const data = await resp.json();
   const candles = data.map(k => ({
@@ -315,8 +315,8 @@ async function fetchBinanceKlines(symbol, interval, limit) {
 async function fetchCryptoCompareKlines(symbol, interval, limit) {
   const timeframe = CC_SYMS[interval] || 'hour';
   const aggregate  = CC_AGG[interval]  || 1;
-  const url = `${CRYPTOCOMPARE}/v2/histo${timeframe}?fsym=${symbol}&tsym=USD&limit=${limit}&aggregate=${aggregate}`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const url = `https://min-api.cryptocompare.com/data/v2/histo${timeframe}?fsym=${symbol}&tsym=USD&limit=${limit}&aggregate=${aggregate}`;
+  const resp = await fetch(url, { mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(10000) });
   if (!resp.ok) throw new Error('CryptoCompare HTTP ' + resp.status);
   const json = await resp.json();
   if (json.Response === 'Error') throw new Error(json.Message);
@@ -328,8 +328,8 @@ async function fetchCryptoCompareKlines(symbol, interval, limit) {
 // CoinGecko ticker — precios actuales con % 24h
 async function fetchCoinGeckoTicker(symbols) {
   const ids = symbols.map(s => CG_IDS_MAP[s]).filter(Boolean).join(',');
-  const url = `${COINGECKO_API}/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
+  const resp = await fetch(url, { mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(8000) });
   if (!resp.ok) throw new Error('CoinGecko ticker HTTP ' + resp.status);
   const data = await resp.json();
   const result = {};
@@ -344,10 +344,12 @@ async function fetchCoinGeckoTicker(symbols) {
 }
 
 async function fetchBinanceTicker(symbols) {
-  // Intentar Binance primero (funciona en servidor)
+  // Intentar Binance primero
   try {
     const result = {};
-    const resp = await fetch(`${BINANCE_PROXY}/ticker/24hr`, { signal: AbortSignal.timeout(5000) });
+    const resp = await fetch('https://api.binance.com/api/v3/ticker/24hr', {
+      mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(6000)
+    });
     const data = await resp.json();
     const map = {};
     data.forEach(t => { map[t.symbol] = t; });
@@ -363,8 +365,8 @@ async function fetchBinanceTicker(symbols) {
 }
 
 async function fetchCoinGeckoKlines(coinId, symbol, days) {
-  const url = `${COINGECKO_BASE}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
+  const resp = await fetch(url, { mode: 'cors', credentials: 'omit', signal: AbortSignal.timeout(10000) });
   if (!resp.ok) throw new Error('CoinGecko HTTP ' + resp.status);
   const data = await resp.json();
   const prices = data.prices.map(p => p[1]);
