@@ -104,7 +104,7 @@ footer{margin-top:28px;padding-top:14px;border-top:0.5px solid var(--border);fon
       </span>
     </div>
     <div style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span>25 estrategias · Datos en tiempo real · IA integrada</span>
+      <span>53 estrategias · Datos en tiempo real · IA integrada</span>
       <span id="last-update" style="font-size:11px;color:var(--text3)"></span>
     </div>
   </header>
@@ -469,7 +469,7 @@ async function fetchAndEnableBtn() {
     renderCoins(ticker);
     updateStatus();
     btn.disabled = false;
-    btn.textContent = `▶ Competir — 25 estrategias · ${COINS[activeCoin].symbol} [${activeTf}] · ${livePrices.length} velas`;
+    btn.textContent = `▶ Competir — 53 estrategias · ${COINS[activeCoin].symbol} [${activeTf}] · ${livePrices.length} velas`;
     btn.style.borderColor = COINS[activeCoin].color;
     btn.style.color = COINS[activeCoin].color;
   } catch (e) {
@@ -522,36 +522,236 @@ function pivotCalc(c) { const pp=new Array(c.length).fill(null),r1=new Array(c.l
 function srBreak(c,p,lb=20) { const sig=new Array(p.length).fill(0); for(let i=lb+1;i<p.length;i++){const hi=Math.max(...c.slice(i-lb,i).map(x=>x.h)),lo=Math.min(...c.slice(i-lb,i).map(x=>x.l));if(c[i].c>hi&&c[i-1].c<=hi)sig[i]=1;else if(c[i].c<lo&&c[i-1].c>=lo)sig[i]=-1;}return sig; }
 function vwapCalc(p) { let cv=0,cp=0; return p.map((v,i)=>{cv+=v*(i+1);cp+=(i+1);return cv/cp;}); }
 function triEma(a,n) { const e1=ema(a,n),e2=ema(e1,n),e3=ema(e2,n); return e1.map((v,i)=>3*v-3*e2[i]+e3[i]); }
+// ── Nuevos indicadores ──────────────────────────────────
+function heikinAshi(candles) {
+  const ha = [];
+  for (let i = 0; i < candles.length; i++) {
+    const pc = i === 0 ? candles[0] : ha[i-1];
+    const c = (candles[i].o+candles[i].h+candles[i].l+candles[i].c)/4;
+    const o = i === 0 ? (candles[0].o+candles[0].c)/2 : (pc.o+pc.c)/2;
+    const h = Math.max(candles[i].h,o,c), l = Math.min(candles[i].l,o,c);
+    ha.push({o,h,l,c});
+  }
+  return ha;
+}
+function supertrend(candles, prices, period=10, mult=3) {
+  const at = atrArr(candles, period);
+  const up = [], dn = [], st = new Array(candles.length).fill(null), trend = [];
+  let bull = true;
+  for (let i = period+1; i < candles.length; i++) {
+    const hl2 = (candles[i].h + candles[i].l) / 2;
+    const u = hl2 + mult * at[i], d = hl2 - mult * at[i];
+    const pu = up[up.length-1] || u, pd = dn[dn.length-1] || d;
+    up.push(u < pu || prices[i-1] > pu ? u : pu);
+    dn.push(d > pd || prices[i-1] < pd ? d : pd);
+    const cu = up[up.length-1], cd = dn[dn.length-1];
+    if (bull && prices[i] < cd) bull = false;
+    else if (!bull && prices[i] > cu) bull = true;
+    st[i] = bull ? cd : cu;
+    trend.push(bull ? 1 : -1);
+  }
+  return { st, trend };
+}
+function williamsR(prices, n=14) {
+  return prices.map((_,i) => {
+    if (i < n-1) return null;
+    const sl = prices.slice(i-n+1,i+1), hi=Math.max(...sl), lo=Math.min(...sl);
+    return hi===lo ? -50 : (prices[i]-hi)/(hi-lo)*100;
+  });
+}
+function dema(a, n) { const e1=ema(a,n),e2=ema(e1,n); return e1.map((v,i)=>2*v-e2[i]); }
+function kama(prices, n=10, fast=2, slow=30) {
+  const fc=2/(fast+1), sc=2/(slow+1);
+  const out=[prices[0]];
+  for (let i=1;i<prices.length;i++) {
+    if (i<n) { out.push(prices[i]); continue; }
+    const dir=Math.abs(prices[i]-prices[i-n]);
+    const vol=prices.slice(i-n+1,i+1).reduce((s,v,j,a)=>s+(j>0?Math.abs(v-a[j-1]):0),0)||1;
+    const er=dir/vol, sc2=(er*(fc-sc)+sc)**2;
+    out.push(out[out.length-1]+sc2*(prices[i]-out[out.length-1]));
+  }
+  return out;
+}
+function momentumCalc(prices, n=10) {
+  return prices.map((v,i) => i < n ? null : v - prices[i-n]);
+}
+function roiCalc(prices, n=14) {
+  return prices.map((v,i) => i < n ? null : (v-prices[i-n])/prices[i-n]*100);
+}
+function mfiCalc(candles, prices, n=14) {
+  const tp = candles.map(c => (c.h+c.l+c.c)/3);
+  const mf = tp.map((v,i) => v * (i+1)); // proxy sin volumen real
+  const out = new Array(n).fill(null);
+  for (let i=n;i<tp.length;i++) {
+    let pos=0,neg=0;
+    for (let j=i-n+1;j<=i;j++) {
+      if (tp[j]>tp[j-1]) pos+=mf[j]; else neg+=mf[j];
+    }
+    out.push(neg===0 ? 100 : 100-100/(1+pos/neg));
+  }
+  return out;
+}
+function adxCalc(candles, n=14) {
+  const adx=new Array(n*2).fill(null);
+  for (let i=n*2;i<candles.length;i++) {
+    let pDM=0,nDM=0,tr=0;
+    for (let j=i-n+1;j<=i;j++) {
+      const upM=candles[j].h-candles[j-1].h, dnM=candles[j-1].l-candles[j].l;
+      pDM+=upM>dnM&&upM>0?upM:0;
+      nDM+=dnM>upM&&dnM>0?dnM:0;
+      tr+=Math.max(candles[j].h-candles[j].l,Math.abs(candles[j].h-candles[j-1].c),Math.abs(candles[j].l-candles[j-1].c));
+    }
+    const di_p=tr?100*pDM/tr:0, di_n=tr?100*nDM/tr:0;
+    const dx=di_p+di_n?100*Math.abs(di_p-di_n)/(di_p+di_n):0;
+    adx.push(dx);
+  }
+  return adx;
+}
+function wyckoffPhase(candles, prices, n=20) {
+  // Simplificado: detecta acumulación (volumen en mínimos) y distribución (volumen en máximos)
+  const sig = new Array(prices.length).fill(0);
+  for (let i=n+1;i<prices.length;i++) {
+    const sl=prices.slice(i-n,i), mn=Math.min(...sl), mx=Math.max(...sl), rng=mx-mn||1;
+    const pos=(prices[i]-mn)/rng; // 0=fondo, 1=techo
+    const bodySize=candles.slice(i-n,i).map(c=>Math.abs(c.c-c.o)/((c.h-c.l)||1));
+    const avgBody=bodySize.reduce((a,b)=>a+b,0)/n;
+    const currBody=Math.abs(candles[i].c-candles[i].o)/((candles[i].h-candles[i].l)||1);
+    // Acumulación: precio en fondo + vela fuerte alcista
+    if (pos<0.25 && candles[i].c>candles[i].o && currBody>avgBody*1.5) sig[i]=1;
+    // Distribución: precio en techo + vela fuerte bajista
+    if (pos>0.75 && candles[i].c<candles[i].o && currBody>avgBody*1.5) sig[i]=-1;
+  }
+  return sig;
+}
+function meanReversionCalc(prices, n=20, stdMult=2) {
+  const m=sma(prices,n);
+  const sig=new Array(prices.length).fill(0);
+  for (let i=n;i<prices.length;i++) {
+    if(!m[i]) continue;
+    const sl=prices.slice(i-n,i+1), sd=Math.sqrt(sl.reduce((a,v)=>a+(v-m[i])**2,0)/n);
+    if (prices[i]<m[i]-stdMult*sd) sig[i]=1;   // muy por debajo → compra
+    if (prices[i]>m[i]+stdMult*sd) sig[i]=-1;  // muy por encima → venta
+  }
+  return sig;
+}
+function tripleScreenCalc(prices, candles) {
+  // Elder Triple Screen: tendencia semanal (EMA larga) + oscilador diario (RSI) + entrada (ruptura)
+  const trend = ema(prices, 13); // tendencia
+  const osc   = rsiArr(prices, 5); // oscilador rápido
+  const sig   = new Array(prices.length).fill(0);
+  for (let i=14;i<prices.length;i++) {
+    const bullTrend = trend[i] > trend[i-5]; // tendencia alcista
+    const bearTrend = trend[i] < trend[i-5];
+    if (bullTrend && osc[i]!==null && osc[i]<40) sig[i]=1;  // pullback en tendencia alcista
+    if (bearTrend && osc[i]!==null && osc[i]>60) sig[i]=-1; // rebote en tendencia bajista
+  }
+  return sig;
+}
+function turtleBreakout(prices, n=20) {
+  const sig=new Array(prices.length).fill(0);
+  for (let i=n+1;i<prices.length;i++) {
+    const hi=Math.max(...prices.slice(i-n,i)), lo=Math.min(...prices.slice(i-n,i));
+    if (prices[i]>hi && prices[i-1]<=hi) sig[i]=1;
+    if (prices[i]<lo && prices[i-1]>=lo) sig[i]=-1;
+  }
+  return sig;
+}
+function goldenDeathCross(prices) {
+  const ma50=sma(prices,50), ma200=sma(prices,200);
+  const sig=new Array(prices.length).fill(0);
+  for (let i=1;i<prices.length;i++) {
+    if(!ma50[i]||!ma200[i]||!ma50[i-1]||!ma200[i-1]) continue;
+    if (ma50[i-1]<=ma200[i-1] && ma50[i]>ma200[i]) sig[i]=1;  // golden cross
+    if (ma50[i-1]>=ma200[i-1] && ma50[i]<ma200[i]) sig[i]=-1; // death cross
+  }
+  return sig;
+}
+function ichimokuFull(prices, candles) {
+  const tenkan=prices.map((_,i)=>i<8?null:(Math.max(...prices.slice(i-8,i+1))+Math.min(...prices.slice(i-8,i+1)))/2);
+  const kijun=prices.map((_,i)=>i<25?null:(Math.max(...prices.slice(i-25,i+1))+Math.min(...prices.slice(i-25,i+1)))/2);
+  const spanA=tenkan.map((v,i)=>v&&kijun[i]?(v+kijun[i])/2:null);
+  const spanB=prices.map((_,i)=>i<51?null:(Math.max(...prices.slice(i-51,i+1))+Math.min(...prices.slice(i-51,i+1)))/2);
+  const sig=new Array(prices.length).fill(0);
+  for (let i=1;i<prices.length;i++) {
+    if(!tenkan[i]||!kijun[i]||!spanA[i]||!spanB[i]) continue;
+    const cloud_top=Math.max(spanA[i],spanB[i]), cloud_bot=Math.min(spanA[i],spanB[i]);
+    // Precio sobre nube + tenkan cruza kijun → compra
+    if (prices[i]>cloud_top && tenkan[i-1]<=kijun[i-1] && tenkan[i]>kijun[i]) sig[i]=1;
+    if (prices[i]<cloud_bot && tenkan[i-1]>=kijun[i-1] && tenkan[i]<kijun[i]) sig[i]=-1;
+  }
+  return {sig, tenkan, kijun, spanA, spanB};
+}
+
 
 /* ═══════════════════════════════════════════
    STRATEGIES
 ═══════════════════════════════════════════ */
 const STRATEGIES = [
-  {id:'sma_cross',name:'SMA cruce',cat:'Tendencia'},
-  {id:'ema_cross',name:'EMA cruce',cat:'Tendencia'},
-  {id:'tema',name:'Triple EMA',cat:'Tendencia'},
-  {id:'macd',name:'MACD',cat:'Momentum'},
-  {id:'rsi',name:'RSI',cat:'Oscilador'},
-  {id:'stoch',name:'Estocástico',cat:'Oscilador'},
-  {id:'cci',name:'CCI',cat:'Oscilador'},
-  {id:'bb',name:'Bollinger Bands',cat:'Volatilidad'},
-  {id:'bb_squeeze',name:'BB Squeeze',cat:'Volatilidad'},
-  {id:'atr_trail',name:'ATR trailing',cat:'Volatilidad'},
-  {id:'donchian',name:'Donchian ruptura',cat:'Ruptura'},
-  {id:'sr_breakout',name:'S/R Breakout',cat:'Ruptura'},
-  {id:'swing_break',name:'Swing HL ruptura',cat:'Ruptura'},
-  {id:'vae_poc',name:'VAE / POC',cat:'Volume Profile'},
-  {id:'vae_vah',name:'VAE High/Low',cat:'Volume Profile'},
-  {id:'pivot',name:'Pivot Points',cat:'Pivotes'},
-  {id:'vwap',name:'VWAP cruce',cat:'Volumen'},
-  {id:'ob_bull',name:'Order Block',cat:'SMC'},
-  {id:'fvg',name:'Fair Value Gap',cat:'SMC'},
-  {id:'liq_sweep',name:'Liquidity Sweep',cat:'SMC'},
-  {id:'choch',name:'CHoCH / BOS',cat:'SMC'},
-  {id:'smc_combo',name:'SMC combo',cat:'SMC'},
-  {id:'macd_rsi',name:'MACD+RSI',cat:'Combo'},
-  {id:'rsi_bb',name:'RSI+BB',cat:'Combo'},
-  {id:'trend_smc',name:'Tendencia+SMC',cat:'Combo'},
+  // ── Tendencia ──
+  {id:'sma_cross',      name:'SMA cruce',          cat:'Tendencia'},
+  {id:'ema_cross',      name:'EMA cruce',           cat:'Tendencia'},
+  {id:'tema',           name:'Triple EMA',           cat:'Tendencia'},
+  {id:'dema',           name:'DEMA',                 cat:'Tendencia'},
+  {id:'kama',           name:'KAMA adaptativo',      cat:'Tendencia'},
+  {id:'golden_cross',   name:'Golden/Death Cross',   cat:'Tendencia'},
+  {id:'supertrend',     name:'Supertrend',           cat:'Tendencia'},
+  {id:'heikin_ashi',    name:'Heikin Ashi',          cat:'Tendencia'},
+  // ── Momentum ──
+  {id:'macd',           name:'MACD',                 cat:'Momentum'},
+  {id:'momentum',       name:'Momentum',             cat:'Momentum'},
+  {id:'roc',            name:'ROC (Rate of Change)', cat:'Momentum'},
+  {id:'adx_trend',      name:'ADX tendencia',        cat:'Momentum'},
+  // ── Osciladores ──
+  {id:'rsi',            name:'RSI',                  cat:'Oscilador'},
+  {id:'stoch',          name:'Estocástico',           cat:'Oscilador'},
+  {id:'cci',            name:'CCI',                  cat:'Oscilador'},
+  {id:'williams_r',     name:'Williams %R',          cat:'Oscilador'},
+  {id:'mfi',            name:'MFI (Money Flow)',      cat:'Oscilador'},
+  // ── Volatilidad ──
+  {id:'bb',             name:'Bollinger Bands',       cat:'Volatilidad'},
+  {id:'bb_squeeze',     name:'BB Squeeze',            cat:'Volatilidad'},
+  {id:'atr_trail',      name:'ATR trailing',          cat:'Volatilidad'},
+  // ── Ruptura ──
+  {id:'donchian',       name:'Donchian ruptura',      cat:'Ruptura'},
+  {id:'turtle',         name:'Turtle Breakout',       cat:'Ruptura'},
+  {id:'sr_breakout',    name:'S/R Breakout',          cat:'Ruptura'},
+  {id:'swing_break',    name:'Swing HL ruptura',      cat:'Ruptura'},
+  // ── Reversión ──
+  {id:'mean_rev',       name:'Mean Reversion',        cat:'Reversión'},
+  {id:'wyckoff',        name:'Wyckoff',               cat:'Reversión'},
+  // ── Volume Profile ──
+  {id:'vae_poc',        name:'VAE / POC',             cat:'Volume Profile'},
+  {id:'vae_vah',        name:'VAE High/Low',          cat:'Volume Profile'},
+  {id:'vwap',           name:'VWAP cruce',            cat:'Volumen'},
+  {id:'mfi_vwap',       name:'MFI + VWAP',            cat:'Volumen'},
+  // ── Pivotes ──
+  {id:'pivot',          name:'Pivot Points',          cat:'Pivotes'},
+  // ── SMC ──
+  {id:'ob_bull',        name:'Order Block',           cat:'SMC'},
+  {id:'fvg',            name:'Fair Value Gap',        cat:'SMC'},
+  {id:'liq_sweep',      name:'Liquidity Sweep',       cat:'SMC'},
+  {id:'choch',          name:'CHoCH / BOS',           cat:'SMC'},
+  {id:'smc_combo',      name:'SMC combo',             cat:'SMC'},
+  // ── Sistemas clásicos ──
+  {id:'triple_screen',  name:'Triple Screen (Elder)', cat:'Sistema'},
+  {id:'ichimoku_full',  name:'Ichimoku completo',     cat:'Sistema'},
+  // ── Combos ──
+  {id:'macd_rsi',       name:'MACD + RSI',            cat:'Combo'},
+  {id:'rsi_bb',         name:'RSI + BB',              cat:'Combo'},
+  {id:'trend_smc',      name:'Tendencia + SMC',       cat:'Combo'},
+  {id:'super_rsi',      name:'Supertrend + RSI',      cat:'Combo'},
+  {id:'golden_volume',  name:'Golden Cross + MFI',    cat:'Combo'},
+  // ── Virales YouTube / Twitter / TikTok ──
+  {id:'squeeze_mom',    name:'Squeeze Momentum',       cat:'🔥 Viral'},
+  {id:'halftrend',      name:'HalfTrend (TikTok)',     cat:'🔥 Viral'},
+  {id:'rsi_div',        name:'Divergencia RSI',         cat:'🔥 Viral'},
+  {id:'tsi',            name:'TSI (True Strength)',     cat:'🔥 Viral'},
+  {id:'cmf',            name:'Chaikin Money Flow',      cat:'🔥 Viral'},
+  {id:'ewo',            name:'Elliott Wave Osc.',       cat:'🔥 Viral'},
+  {id:'cpr',            name:'CPR (Central Pivot)',     cat:'🔥 Viral'},
+  {id:'smi',            name:'Smart Money Index',       cat:'🔥 Viral'},
+  {id:'vol_profile_b',  name:'Volume Profile Break',   cat:'🔥 Viral'},
+  {id:'trend_magic',    name:'Trend Magic',             cat:'🔥 Viral'},
 ];
 
 function runStrategy(id, candles, prices) {
@@ -581,6 +781,175 @@ function runStrategy(id, candles, prices) {
   else if(id==='macd_rsi'){const{ml,sl}=macdCalc(prices,12,26,9),r=rsiArr(prices,14);for(let i=1;i<n;i++){if(r[i]&&ml[i]){if(ml[i-1]<=sl[i-1]&&ml[i]>sl[i]&&r[i]<55)sig[i]=1;else if(ml[i-1]>=sl[i-1]&&ml[i]<sl[i]&&r[i]>45)sig[i]=-1;}}ind={ml,sl};}
   else if(id==='rsi_bb'){const r=rsiArr(prices,14),bb=bbCalc(prices,20,2);for(let i=1;i<n;i++){if(r[i]&&bb.l[i]){if(r[i]<35&&prices[i]<bb.l[i])sig[i]=1;else if(r[i]>65&&prices[i]>bb.u[i])sig[i]=-1;}}ind={...bbCalc(prices,20,2)};}
   else if(id==='trend_smc'){const ef=ema(prices,50),ch=chochCalc(candles);for(let i=1;i<n;i++){if(ch[i]===1&&prices[i]>ef[i])sig[i]=1;else if(ch[i]===-1&&prices[i]<ef[i])sig[i]=-1;}ind={ef};}
+  
+// ── Indicadores de moda (YouTube/Twitter/TikTok) ──────────
+function tsiCalc(prices, r=25, s=13) {
+  // True Strength Index — muy popular en YouTube crypto
+  const diff = prices.map((v,i) => i===0?0:v-prices[i-1]);
+  const absD = diff.map(Math.abs);
+  const ema1 = ema(diff, r), ema2 = ema(ema1, s);
+  const abs1 = ema(absD, r), abs2 = ema(abs1, s);
+  return ema2.map((v,i) => abs2[i]===0?0:100*v/abs2[i]);
+}
+function cmfCalc(candles, prices, n=20) {
+  // Chaikin Money Flow — usado por influencers para "flujo institucional"
+  const mfv = candles.map(c => {
+    const hl = c.h - c.l || 1;
+    return ((c.c - c.l) - (c.h - c.c)) / hl * (c.h - c.l);
+  });
+  return mfv.map((_,i) => {
+    if (i < n-1) return null;
+    const sv = mfv.slice(i-n+1,i+1).reduce((a,b)=>a+b,0);
+    const sp = prices.slice(i-n+1,i+1).reduce((a,b)=>a+b,0);
+    return sp===0?0:sv/sp;
+  });
+}
+function ewoCalc(prices, fast=5, slow=35) {
+  // Elliott Wave Oscillator — trending en comunidades de análisis técnico
+  const ef = ema(prices, fast), es = ema(prices, slow);
+  return ef.map((v,i) => v - es[i]);
+}
+function sqzmomCalc(prices, candles, bbLen=20, kcLen=20, momLen=12) {
+  // Squeeze Momentum (LazyBear) — uno de los más virales en TradingView
+  const bb = bbCalc(prices, bbLen, 2);
+  const at = atrArr(candles, kcLen);
+  const mid = sma(prices, kcLen);
+  const kcu = mid.map((v,i) => at[i]?v+1.5*at[i]:null);
+  const kcl = mid.map((v,i) => at[i]?v-1.5*at[i]:null);
+  // Squeeze: BB dentro de KC
+  const squeeze = bb.u.map((v,i) => v&&kcu[i] ? v < kcu[i] && bb.l[i] > kcl[i] : false);
+  // Momentum
+  const highest = prices.map((_,i) => i<momLen?null:Math.max(...prices.slice(i-momLen,i+1)));
+  const lowest  = prices.map((_,i) => i<momLen?null:Math.min(...prices.slice(i-momLen,i+1)));
+  const delta   = prices.map((_,i) => highest[i]&&lowest[i] ? prices[i]-((highest[i]+lowest[i])/2+sma(prices,momLen)[i])/2 : null);
+  const mom     = ema(delta.filter(v=>v!==null), 3);
+  return { squeeze, delta, mom };
+}
+function cprCalc(candles) {
+  // Central Pivot Range — muy usado en YouTube scalping
+  const pivot = new Array(candles.length).fill(null);
+  const cprTop = new Array(candles.length).fill(null);
+  const cprBot = new Array(candles.length).fill(null);
+  for (let i=1;i<candles.length;i++) {
+    const p=(candles[i-1].h+candles[i-1].l+candles[i-1].c)/3;
+    const bc=(candles[i-1].h+candles[i-1].l)/2;
+    const tc=p-(bc-p);
+    pivot[i]=p; cprTop[i]=Math.max(tc,bc); cprBot[i]=Math.min(tc,bc);
+  }
+  return{pivot,cprTop,cprBot};
+}
+function halfTrendCalc(candles, prices, amp=2) {
+  // HalfTrend — viral en TikTok crypto por sus flechas
+  const at = atrArr(candles, 14);
+  const sig = new Array(prices.length).fill(0);
+  let trend = 0, nextTrend = 0, maxLow = prices[0], minHigh = prices[0];
+  for (let i=14;i<prices.length;i++) {
+    if (!at[i]) continue;
+    const atr2 = at[i] * amp;
+    if (nextTrend === 1) {
+      maxLow = Math.max(maxLow, prices[i] - atr2);
+      if (prices[i] > minHigh && trend !== 1) { trend = 1; sig[i] = 1; }
+    } else {
+      minHigh = Math.min(minHigh, prices[i] + atr2);
+      if (prices[i] < maxLow && trend !== -1) { trend = -1; sig[i] = -1; }
+    }
+    if (prices[i] - atr2 > maxLow) nextTrend = 1;
+    if (prices[i] + atr2 < minHigh) nextTrend = 0;
+  }
+  return sig;
+}
+function divergenceRSI(prices, candles, n=14, lb=5) {
+  // Divergencia RSI — contenido estrella en YouTube análisis técnico
+  const r = rsiArr(prices, n);
+  const sig = new Array(prices.length).fill(0);
+  for (let i=lb+n;i<prices.length;i++) {
+    if (!r[i] || !r[i-lb]) continue;
+    // Divergencia alcista: precio hace mínimo más bajo pero RSI hace mínimo más alto
+    if (prices[i]<prices[i-lb] && r[i]>r[i-lb] && prices[i]<prices[i-1]) sig[i]=1;
+    // Divergencia bajista: precio hace máximo más alto pero RSI hace máximo más bajo
+    if (prices[i]>prices[i-lb] && r[i]<r[i-lb] && prices[i]>prices[i-1]) sig[i]=-1;
+  }
+  return {sig, r};
+}
+function smartMoneyIndex(prices, candles) {
+  // SMI — "dinero inteligente" al cierre vs apertura, trending en fintwit
+  const smi = candles.map((c,i) => {
+    if (i===0) return 0;
+    const openMove = Math.abs(c.o - candles[i-1].c); // movimiento pánico apertura
+    const closeMove = c.c - c.o;                      // movimiento smart cierre
+    return closeMove - openMove * 0.3;
+  });
+  const smiSma = sma(smi, 20);
+  const sig = new Array(prices.length).fill(0);
+  for (let i=1;i<prices.length;i++) {
+    if(!smiSma[i]||!smiSma[i-1]) continue;
+    if(smiSma[i-1]<=0&&smiSma[i]>0) sig[i]=1;
+    else if(smiSma[i-1]>=0&&smiSma[i]<0) sig[i]=-1;
+  }
+  return {sig, smiSma};
+}
+function volumeProfileBreak(prices, candles, n=50) {
+  // Volume Profile + ruptura — muy usado en streams de trading en vivo
+  const sig = new Array(prices.length).fill(0);
+  for (let i=n;i<prices.length;i++) {
+    const sl = prices.slice(i-n,i);
+    const mn=Math.min(...sl), mx=Math.max(...sl), rng=mx-mn||1;
+    const bins=10, cnt=new Array(bins).fill(0);
+    sl.forEach(v=>{cnt[Math.min(Math.floor((v-mn)/rng*bins),bins-1)]++;});
+    const pocBin=cnt.indexOf(Math.max(...cnt));
+    const poc=mn+pocBin/bins*rng+rng/(2*bins);
+    // Ruptura del POC con continuación
+    if(prices[i-1]<=poc&&prices[i]>poc*1.003) sig[i]=1;
+    if(prices[i-1]>=poc&&prices[i]<poc*0.997) sig[i]=-1;
+  }
+  return sig;
+}
+function trendMagicCalc(candles, prices, period=20, coeff=1) {
+  // Trend Magic — popular en canales de señales Telegram/Discord
+  const at = atrArr(candles, period);
+  const cci_arr = cci(prices, period);
+  const sig = new Array(prices.length).fill(0);
+  let upTrend = true;
+  for (let i=period+1;i<prices.length;i++) {
+    if(!at[i]||cci_arr[i]===null) continue;
+    const prevUp = upTrend;
+    if(cci_arr[i]>=0) upTrend=true; else upTrend=false;
+    if(!prevUp&&upTrend) sig[i]=1;
+    if(prevUp&&!upTrend) sig[i]=-1;
+  }
+  return sig;
+}
+
+  // ── Nuevas estrategias ──
+  else if(id==='dema'){const d=dema(prices,14);for(let i=1;i<n;i++){if(d[i-1]<=prices[i-1]&&d[i]>prices[i])sig[i]=1;else if(d[i-1]>=prices[i-1]&&d[i]<prices[i])sig[i]=-1;}ind={d};}
+  else if(id==='kama'){const k=kama(prices,10);for(let i=1;i<n;i++){if(k[i-1]<=prices[i-1]&&k[i]>prices[i])sig[i]=1;else if(k[i-1]>=prices[i-1]&&k[i]<prices[i])sig[i]=-1;}ind={k};}
+  else if(id==='golden_cross'){sig=goldenDeathCross(prices);ind={};}
+  else if(id==='supertrend'){const{st,trend}=supertrend(candles,prices,10,3);for(let i=1;i<n;i++){if(trend[i-trend.length+n]===1&&trend[i-1-trend.length+n]===-1)sig[i]=1;else if(trend[i-trend.length+n]===-1&&trend[i-1-trend.length+n]===1)sig[i]=-1;}ind={st};}
+  else if(id==='heikin_ashi'){const ha=heikinAshi(candles);for(let i=2;i<n;i++){const prev=ha[i-1],curr=ha[i];if(prev.c<prev.o&&curr.c>curr.o&&curr.l>=curr.o)sig[i]=1;else if(prev.c>prev.o&&curr.c<curr.o&&curr.h<=curr.o)sig[i]=-1;}}
+  else if(id==='momentum'){const m=momentumCalc(prices,10);for(let i=1;i<n;i++){if(m[i]!==null&&m[i-1]!==null){if(m[i-1]<=0&&m[i]>0)sig[i]=1;else if(m[i-1]>=0&&m[i]<0)sig[i]=-1;}}ind={m};}
+  else if(id==='roc'){const r=roiCalc(prices,14);for(let i=1;i<n;i++){if(r[i]!==null&&r[i-1]!==null){if(r[i-1]<=0&&r[i]>0)sig[i]=1;else if(r[i-1]>=0&&r[i]<0)sig[i]=-1;}}ind={r};}
+  else if(id==='adx_trend'){const adx=adxCalc(candles,14),ef=ema(prices,20);for(let i=1;i<n;i++){if(adx[i]!==null&&adx[i]>25){if(prices[i]>ef[i]&&prices[i-1]<=ef[i-1])sig[i]=1;else if(prices[i]<ef[i]&&prices[i-1]>=ef[i-1])sig[i]=-1;}}ind={ef};}
+  else if(id==='williams_r'){const w=williamsR(prices,14);for(let i=1;i<n;i++){if(w[i]!==null&&w[i-1]!==null){if(w[i-1]>=-80&&w[i]<-80)sig[i]=1;else if(w[i-1]<=-20&&w[i]>-20)sig[i]=-1;}}ind={w};}
+  else if(id==='mfi'){const m=mfiCalc(candles,prices,14);for(let i=1;i<n;i++){if(m[i]!==null&&m[i-1]!==null){if(m[i-1]>=20&&m[i]<20)sig[i]=1;else if(m[i-1]<=80&&m[i]>80)sig[i]=-1;}}ind={m};}
+  else if(id==='turtle'){sig=turtleBreakout(prices,20);ind={};}
+  else if(id==='mean_rev'){sig=meanReversionCalc(prices,20,2);ind={};}
+  else if(id==='wyckoff'){sig=wyckoffPhase(candles,prices,20);ind={};}
+  else if(id==='mfi_vwap'){const m=mfiCalc(candles,prices,14),vw=vwapCalc(prices);for(let i=1;i<n;i++){if(m[i]&&m[i]<30&&prices[i]>vw[i])sig[i]=1;else if(m[i]&&m[i]>70&&prices[i]<vw[i])sig[i]=-1;}ind={vw};}
+  else if(id==='triple_screen'){sig=tripleScreenCalc(prices,candles);ind={};}
+  else if(id==='ichimoku_full'){const{sig:s,tenkan,kijun}=ichimokuFull(prices,candles);sig=s;ind={tenkan,kijun};}
+  else if(id==='super_rsi'){const{st,trend}=supertrend(candles,prices,10,3);const r=rsiArr(prices,14);for(let i=1;i<n;i++){const ti=i-n+trend.length;if(ti>=0&&trend[ti]===1&&r[i]!==null&&r[i]<45)sig[i]=1;else if(ti>=0&&trend[ti]===-1&&r[i]!==null&&r[i]>55)sig[i]=-1;}ind={r};}
+  else if(id==='golden_volume'){const gc=goldenDeathCross(prices),m=mfiCalc(candles,prices,14);for(let i=1;i<n;i++){if(gc[i]===1&&m[i]!==null&&m[i]>50)sig[i]=1;else if(gc[i]===-1&&m[i]!==null&&m[i]<50)sig[i]=-1;}ind={};}
+  // ── Virales ──
+  else if(id==='squeeze_mom'){const{squeeze,delta}=sqzmomCalc(prices,candles);for(let i=1;i<n;i++){if(delta[i]!==null&&delta[i-1]!==null){if(!squeeze[i]&&delta[i-1]<=0&&delta[i]>0)sig[i]=1;else if(!squeeze[i]&&delta[i-1]>=0&&delta[i]<0)sig[i]=-1;}}ind={};}
+  else if(id==='halftrend'){sig=halfTrendCalc(candles,prices,2);ind={};}
+  else if(id==='rsi_div'){const{sig:s,r}=divergenceRSI(prices,candles);sig=s;ind={r};}
+  else if(id==='tsi'){const t=tsiCalc(prices);const ts=sma(t,7);for(let i=1;i<n;i++){if(t[i]!==undefined&&ts[i]){if(t[i-1]<=ts[i-1]&&t[i]>ts[i])sig[i]=1;else if(t[i-1]>=ts[i-1]&&t[i]<ts[i])sig[i]=-1;}}ind={};}
+  else if(id==='cmf'){const c=cmfCalc(candles,prices,20);for(let i=1;i<n;i++){if(c[i]!==null&&c[i-1]!==null){if(c[i-1]<=0&&c[i]>0)sig[i]=1;else if(c[i-1]>=0&&c[i]<0)sig[i]=-1;}}ind={};}
+  else if(id==='ewo'){const e=ewoCalc(prices);for(let i=1;i<n;i++){if(e[i-1]<=0&&e[i]>0)sig[i]=1;else if(e[i-1]>=0&&e[i]<0)sig[i]=-1;}ind={};}
+  else if(id==='cpr'){const{pivot,cprTop,cprBot}=cprCalc(candles);for(let i=1;i<n;i++){if(cprTop[i]){if(prices[i-1]<=cprTop[i-1]&&prices[i]>cprTop[i])sig[i]=1;else if(prices[i-1]>=cprBot[i-1]&&prices[i]<cprBot[i])sig[i]=-1;}}ind={pivot,cprTop,cprBot};}
+  else if(id==='smi'){const{sig:s,smiSma}=smartMoneyIndex(prices,candles);sig=s;ind={smiSma};}
+  else if(id==='vol_profile_b'){sig=volumeProfileBreak(prices,candles,50);ind={};}
+  else if(id==='trend_magic'){sig=trendMagicCalc(candles,prices);ind={};}
 
   let eq=10000,inT=false,bp=0,bi=0;
   const curve=[10000],trades=[],buys=[],sells=[];
@@ -594,6 +963,31 @@ function runStrategy(id, candles, prices) {
   const ret=(eq/10000-1)*100;
   const mdd=(()=>{let pk=curve[0],dd=0;curve.forEach(v=>{if(v>pk)pk=v;dd=Math.min(dd,(v-pk)/pk*100);});return dd;})();
   return{eq,ret,mdd,wins,trades,curve,buys,sells,ind};
+}
+
+
+function genDateLabels(n, tf) {
+  const msPerCandle = {
+    '1m':60000,'5m':300000,'15m':900000,'1h':3600000,
+    '4h':14400000,'1d':86400000,'1w':604800000
+  }[tf] || 14400000;
+  const now = Date.now();
+  const labels = [];
+  for (let i = 0; i < n; i++) {
+    const ts = now - (n - 1 - i) * msPerCandle;
+    const d = new Date(ts);
+    let label = '';
+    if (tf === '1m' || tf === '5m' || tf === '15m') {
+      label = d.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+    } else if (tf === '1h' || tf === '4h' || tf === '5h') {
+      label = d.toLocaleDateString('es-ES', {month:'short', day:'numeric'}) + ' ' +
+              d.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+    } else {
+      label = d.toLocaleDateString('es-ES', {month:'short', day:'numeric', year:'2-digit'});
+    }
+    labels.push(label);
+  }
+  return labels;
 }
 
 /* ═══════════════════════════════════════════
@@ -717,12 +1111,15 @@ En 3-4 frases en español: explica por qué ${winner.name} funcionó mejor para 
   `;
 
   // Charts
-  const labels = Array.from({length: prices.length}, (_,i) => i % Math.ceil(prices.length/6) === 0 ? String(i) : '');
+  const labels = genDateLabels(prices.length, activeTf);
   if (eqC) eqC.destroy();
   eqC = new Chart(document.getElementById('eqC'), {
     type: 'line',
     data: { labels, datasets: [{ data: wr.curve, borderColor: coin.color, borderWidth: 1.5, pointRadius: 0, fill: true, backgroundColor: coin.color + '12', tension: 0.3 }] },
-    options: { responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}}, scales:{ x:{ticks:{color:tc,font:{size:10},maxTicksLimit:6},grid:{color:gc}}, y:{ticks:{color:tc,font:{size:10},callback:v=>'$'+Math.round(v/1000)+'k'},grid:{color:gc}} } }
+    options: { responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{title:items=>labels[items[0].dataIndex]}}}, scales:{
+      x:{ticks:{color:tc,font:{size:9},maxTicksLimit:6,maxRotation:30},grid:{color:gc}},
+      y:{ticks:{color:tc,font:{size:10},callback:v=>'$'+Math.round(v/1000)+'k'},grid:{color:gc}}
+    }}
   });
 
   const pds = [{ label:'Precio', data:prices, borderColor:isDark?'rgba(200,200,200,0.35)':'rgba(0,0,0,0.2)', borderWidth:1, pointRadius:0, fill:false, tension:0.15, order:3 }];
@@ -741,15 +1138,42 @@ En 3-4 frases en español: explica por qué ${winner.name} funcionó mejor para 
   if (prC) prC.destroy();
   prC = new Chart(document.getElementById('prC'), {
     type: 'line', data: { labels, datasets: pds },
-    options: { responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}}, scales:{ x:{ticks:{color:tc,font:{size:10},maxTicksLimit:6},grid:{color:gc}}, y:{ticks:{color:tc,font:{size:10},callback:v=>fmtPx(v)},grid:{color:gc}} } }
+    options: { responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          mode:'index', intersect:false,
+          callbacks:{
+            title: items => labels[items[0].dataIndex],
+            label: item => {
+              if(item.dataset.label==='Compra') return '▲ Entrada: ' + fmtPx(item.raw);
+              if(item.dataset.label==='Venta')  return '▼ Salida: '  + fmtPx(item.raw);
+              if(item.dataset.label==='Precio') return 'Precio: '    + fmtPx(item.raw);
+              return null;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:tc,font:{size:9},maxTicksLimit:8,maxRotation:30},grid:{color:gc}},
+        y:{ticks:{color:tc,font:{size:10},callback:v=>fmtPx(v)},grid:{color:gc}}
+      }
+    }
   });
 
   // Trades
   document.getElementById('tcnt').textContent = wr.trades.length;
   document.getElementById('tlist').innerHTML = wr.trades.length
-    ? wr.trades.slice(-12).reverse().map(t =>
-        `<div class="tr"><span class="td0">#${t.bi}→#${t.si}${t.open?' *':''}</span><span>${fmtPx(t.bp)} → ${fmtPx(t.sp)}</span><span class="pill ${t.pnl>=0?'pu':'pd'}">${t.pnl>=0?'+':''}${t.pnl.toFixed(2)}%</span></div>`
-      ).join('')
+    ? wr.trades.slice(-12).reverse().map(t => {
+        const dIn  = labels[t.bi] || ('#'+t.bi);
+        const dOut = labels[t.si] || ('#'+t.si);
+        return `<div class="tr">
+          <span class="td0" style="min-width:unset;font-size:10px">${dIn}</span>
+          <span style="font-size:10px;color:var(--text2)">→ ${dOut}${t.open?' 🔴':''}</span>
+          <span>${fmtPx(t.bp)}→${fmtPx(t.sp)}</span>
+          <span class="pill ${t.pnl>=0?'pu':'pd'}">${t.pnl>=0?'+':''}${t.pnl.toFixed(2)}%</span>
+        </div>`;
+      }).join('')
     : '<div style="font-size:12px;color:var(--text2);padding:8px 0">Sin trades en este período</div>';
 
   document.getElementById('res-sec').style.display = 'block';
